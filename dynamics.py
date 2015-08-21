@@ -6,6 +6,7 @@ considering stand growth and response to stochastic fire, insect, and harvest di
 
 import matplotlib.pyplot as plt
 import numpy as np
+from random import *
 
 
 print """
@@ -141,22 +142,23 @@ while True:
     elif command == 'land':
         # determine a random distribution of starting stand ages
         runs = 100
-        start_ages = np.random.normal(100, 20, runs)   # assuming median stand age corresponds to railroad logging boom
-        print "Initial stand age distribution:"
-        print start_ages
-        print
-        simulation_length = 100
+        # start_ages = np.random.normal(100, 20, runs)   # assuming median stand age corresponds to railroad logging boom
+        # print "Initial stand age distribution:"
+        # print start_ages
+        # print
+        simulation_length = 120
         total_AGB = [0]
         for i in range(simulation_length):
             total_AGB.append(0)
-        run = 1
+        # run = 1
         plt.subplot(2, 1, 1)
-        for start_age in start_ages:
-            print "Simulating stand %i of %i" % (run, runs)
-            start_age = int(start_age)
+        for run in range(runs):
+            print '\rSimulating stand %i of %i' % (run+1, runs),
+            # start_age = int(start_age)
+            start_age = 100
             # print "Starting age:"
             # print start_age
-            print
+            # print
             # step through a sequence of simulation years and apply the 3-PG growth model each year
             simulation_years = range(0, start_age+simulation_length)
             local_states = {'age': [states['age'][0]],
@@ -174,8 +176,21 @@ while True:
             # print local_states
             # print
             age = 0
+            fire_frequency = 200   # years to a stand-replacing fire
             for year in simulation_years:
-                three_PG(age, params, local_states)
+                rand = random()
+                if rand <= (1.0/fire_frequency):
+                    # print "   Fire event!"
+                    age = 0
+                    local_states['age'].append(0)
+                    local_states['w_f'].append(0.1)
+                    local_states['w_s'].append(0.1)
+                    local_states['w_r'].append(0.1)
+                    local_states['AGB'].append(0.2)
+                    local_states['LAI'].append(0)
+                    local_states['interception'].append(0)
+                else:
+                    three_PG(age, params, local_states)
                 age += 1
             # drop the 'spin-up' results
             simulation_years.insert(0, 0)   # insert a value corresponding to initial conditions
@@ -192,7 +207,7 @@ while True:
             plt.plot(range(simulation_length+1), local_states['AGB'], color="g")
             for i in range(len(total_AGB)):
                 total_AGB[i] += local_states['AGB'][i]
-            run += 1
+            # run += 1
 
         plt.ylabel("Aboveground live biomass\n(Mg/ha)")
         plt.subplot(2, 1, 2)
