@@ -4,6 +4,7 @@ considering stand growth and response to stochastic fire, insect, and harvest di
 """
 
 
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 from random import *
@@ -115,8 +116,7 @@ def c_plot(plot_object, w_l_array, w_s_array, w_f_array, w_r_array, w_o_array, t
         plot_object.bar(time_vector, w_l_plot, label='Litter', color='k', edgecolor='k')
         plot_object.bar(time_vector, w_o_plot, label='SOM', color='m', edgecolor='m')
         plot_object.bar(time_vector, w_r_plot, label='Roots', color='b', edgecolor='b')
-        plot_object.ylabel(y_label)
-        plot_object.xlabel("Time (years)")
+        plot_object.legend(loc=9, bbox_to_anchor=(1.0, 1.0), prop={'size': 10})
 
 
 def unharvested_infestation(param_dictionary, state_dictionary):
@@ -147,7 +147,7 @@ def harvested_infestation(param_dictionary, state_dictionary):
     state_dictionary['w_o'].append(state_dictionary['w_o'][-1] + (state_dictionary['w_r'][-2] * microbial_efficiency))
     state_dictionary['LAI'].append(0)
     state_dictionary['interception'].append(0)
-    return (state_dictionary['w_f'][-1] + state_dictionary['w_s'][-1])
+    return state_dictionary['w_f'][-1] + state_dictionary['w_s'][-1]
 
 
 def fire(param_dictionary, state_dictionary):
@@ -235,6 +235,8 @@ while True:
         w_l = np.array(local_states['w_l'])
         w_o = np.array(local_states['w_o'])
         c_plot(plt, w_l, w_s, w_f, w_r, w_o, plot_years, "C pools\n(MgC/ha)")
+        plt.ylabel("Ecosystem C pools\n(MgC/ha)")
+        plt.xlabel("Time (years)")
         plt.xlim((0, simulation_length))
         plt.legend(prop={'size': 11})
         # do another set of simulations with disturbance included this time
@@ -272,94 +274,121 @@ while True:
 
     elif command == 'land':
         # time parameters
+        runs = 1000
         start_year = 1915
         simulation_length = 200
         simulation_years = range(start_year, start_year+simulation_length)
         plot_years = range(start_year, start_year+simulation_length+1)
+        fire_frequency = 200   # years to a stand-replacing fire
+        infest_start = 2005
+        infest_end = 2015
 
-        # initialize lists for total landscape carbon fractions
-        runs = 100
-        total_w_f = [0]
-        total_w_s = [0]
-        total_w_r = [0]
-        total_w_l = [0]
-        total_w_o = [0]
-        fires = [0]
-        infestations = [0]
-        for i in range(simulation_length):
-            total_w_f.append(0)
-            total_w_s.append(0)
-            total_w_r.append(0)
-            total_w_l.append(0)
-            total_w_o.append(0)
-            fires.append(0)
-            infestations.append(0)
+        # defining plot structure
+        gs = gridspec.GridSpec(13, 1)
+        ax1 = plt.subplot(gs[0, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax1.set_title("No harvest")
+        ax2 = plt.subplot(gs[1:4, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax3 = plt.subplot(gs[5, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax3.set_title("Post-infestation harvest")
+        ax4 = plt.subplot(gs[6:9, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax5 = plt.subplot(gs[10:, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax5.set_title("Difference")
 
-        # for each specified stand run, create & initialize a new state variable dictionary, and run through simulation
-        # years computing 3-PG model steps and adding stochastic fire, beetle, and/or harvest events where appropriate
-        plt.subplot(6, 1, 1)
-        for run in range(runs):
-            print '\rSimulating stand %i of %i' % (run+1, runs),
-            # make a new initialized state variable dictionary
-            local_states = {'age': [states['age'][0]],
-                            'w_f': [states['w_f'][0]],
-                            'w_s': [states['w_s'][0]],
-                            'w_r': [states['w_r'][0]],
-                            'w_l': [states['w_l'][0]],
-                            'w_o': [states['w_o'][0]],
-                            'LAI': [states['LAI'][0]],
-                            'interception': [states['interception'][0]]
-                            }
-            # define stand starting age and stochstic variables
-            age = 0
-            fire_frequency = 200   # years to a stand-replacing fire
-            infest_start = 2005
-            infest_end = 2015
-            infest_risk = 0.8 / (infest_end - infest_start)
-            infested = False
-            j = 0
-            for year in simulation_years:
-                # implement infestation where appropriate.  No growth or fire occur in infestation years
-                rand = random()
-                if not infested and (infest_start <= year <= infest_end) and (rand <= infest_risk):
-                    age = 0
-                    unharvested_infestation(params, local_states)
-                    infestations[j] += 1
-                else:
-                    # if no infestation, proceed normally with stochistic fire events or 3-PG growth step
-                    fire_risk = (1.0/fire_frequency) * (local_states['w_l'][-1]/20)
+        axis_objs = [[ax1, ax2], [ax3, ax4]]
+        landscape_totals = []
+        max_fire_freq = []
+        for i in (0, 1):
+            # initialize lists for total landscape carbon fractions
+            total_w_f = [0]
+            total_w_s = [0]
+            total_w_r = [0]
+            total_w_l = [0]
+            total_w_o = [0]
+            fires = [0]
+            infestations = [0]
+            for k in range(simulation_length):
+                total_w_f.append(0)
+                total_w_s.append(0)
+                total_w_r.append(0)
+                total_w_l.append(0)
+                total_w_o.append(0)
+                fires.append(0)
+                infestations.append(0)
+
+            # for each specified stand run, create & initialize a new state variable dictionary, and run through simulation
+            # years computing 3-PG model steps and adding stochastic fire, beetle, and/or harvest events where appropriate
+            for run in range(runs):
+                print '\rSimulating stand %i of %i' % (run+1, runs),
+                # make a new initialized state variable dictionary
+                local_states = {'age': [states['age'][0]],
+                                'w_f': [states['w_f'][0]],
+                                'w_s': [states['w_s'][0]],
+                                'w_r': [states['w_r'][0]],
+                                'w_l': [states['w_l'][0]],
+                                'w_o': [states['w_o'][0]],
+                                'LAI': [states['LAI'][0]],
+                                'interception': [states['interception'][0]]
+                                }
+                # define stand starting age and stochstic variables
+                age = 0
+                infest_risk = 0.8 / (infest_end - infest_start)
+                infested = False
+                j = 0
+                for year in simulation_years:
+                    # implement infestation where appropriate.  No growth or fire occur in infestation years
                     rand = random()
-                    if rand <= fire_risk:
+                    if not infested and (infest_start <= year <= infest_end) and (rand <= infest_risk):
                         age = 0
-                        fire(params, local_states)
-                        fires[j] += 1
+                        if i == 0:
+                            unharvested_infestation(params, local_states)
+                        elif i == 1:
+                            harvested_infestation(params, local_states)
+                        infestations[j] += 1
                     else:
-                        three_PG(age, params, local_states)
-                    age += 1
-                j += 1
+                        # if no infestation, proceed normally with stochistic fire events or 3-PG growth step
+                        fire_risk = (1.0/fire_frequency) * (local_states['w_l'][-1]/20)
+                        rand = random()
+                        if rand <= fire_risk:
+                            age = 0
+                            fire(params, local_states)
+                            fires[j] += 1
+                        else:
+                            three_PG(age, params, local_states)
+                        age += 1
+                    j += 1
+                total_w_f += np.array(local_states['w_f'])
+                total_w_s += np.array(local_states['w_s'])
+                total_w_r += np.array(local_states['w_r'])
+                total_w_l += np.array(local_states['w_l'])
+                total_w_o += np.array(local_states['w_o'])
 
-            AGL = np.array(local_states['w_f']) + np.array(local_states['w_s'])
-            plt.plot(plot_years, AGL, color="g")
-            plt.xlim((simulation_years[0], simulation_years[-1]))
-            total_w_f += np.array(local_states['w_f'])
-            total_w_s += np.array(local_states['w_s'])
-            total_w_r += np.array(local_states['w_r'])
-            total_w_l += np.array(local_states['w_l'])
-            total_w_o += np.array(local_states['w_o'])
+            axis_objs[i][0].bar(plot_years, fires)
+            max_fire_freq.append(max(fires))
+            axis_objs[i][0].set_xlim((simulation_years[0], simulation_years[-1]))
+            axis_objs[i][0].set_xticklabels([])
+            axis_objs[i][0].yaxis.tick_right()
+            axis_objs[i][0].set_ylabel("Fires\n\n")
 
-        plt.ylabel("AG live\n(MgC/ha)")
-        plt.subplot(6, 1, 2)
-        plt.bar(plot_years, fires)
-        plt.xlim((simulation_years[0], simulation_years[-1]))
-        plt.ylabel("Fires")
-        plt.subplot(6, 1, 3)
-        plt.bar(plot_years, infestations)
-        plt.xlim((simulation_years[0], simulation_years[-1]))
-        plt.ylabel("Infestations")
-        plt.subplot(2, 1, 2)
-        c_plot(plt, total_w_l, total_w_s, total_w_f, total_w_r, total_w_o, plot_years, "Landscape C\n(MgC)")
-        plt.legend(loc=3, prop={'size': 10})
-        plt.xlim((simulation_years[0], simulation_years[-1]))
+            c_plot(axis_objs[i][1], total_w_l, total_w_s, total_w_f, total_w_r, total_w_o, plot_years, "")
+            axis_objs[i][1].set_xlim((simulation_years[0], simulation_years[-1]))
+            axis_objs[i][1].set_xticklabels([])
+            axis_objs[i][1].set_ylabel("Landscape MgC")
+
+            landscape_total = total_w_f + total_w_s + total_w_r + total_w_l + total_w_o
+            landscape_totals.append(landscape_total)
+
+        difference = landscape_totals[1] - landscape_totals[0]
+        ax5.plot(plot_years, difference)
+        ax5.plot((simulation_years[0], simulation_years[-1]), (0, 0))
+        ax5.set_ylabel("Landscape MgC")
+        ax5.set_xlim((simulation_years[0], simulation_years[-1]))
+        ax1.yaxis.set_ticks([0, max(max_fire_freq)])
+        ax3.yaxis.set_ticks([0, max(max_fire_freq)])
         plt.show()
 
     elif command == 'q':
