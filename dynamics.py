@@ -21,12 +21,13 @@ print """
 """
 
 # define default values for all model parameters in structure [float(value), str(units), str(description)]
-params = {'age_max': [200, 'years', 'estimated maximum stand age'],
+params = {'age_max': [150, 'years', 'estimated maximum stand age'],
           'n_age': [4, '-', 'hydraulic conductivity age modifier exponent'],
           'phi_s': [5.5, 'kWh/m2/day', 'annually-averaged incoming short-wave radiation'],   # Denver http://www.apricus.com/upload/userfiles/images/Insolation-levels-USA.jpg
           'f_DT': [0.5, '-', 'annually-averaged temperature/moisture modifier value'],
           'sigma_f': [3.2, 'm2/kg', 'specific leaf area'],   # Chen et al. CJFR 1996 Fig. 3c
-          'beers_k': [0.4, '-', 'Beers Law light extinction coefficient']   # Binkley et al. FEM 2013 Fig. 4c; POOR MODEL FOR LODGEPOLE!
+          'beers_k': [0.4, '-', 'Beers Law light extinction coefficient'],   # Binkley et al. FEM 2013 Fig. 4c; POOR MODEL FOR LODGEPOLE!
+          'microbial_efficiency': [0.25, '-', 'Fraction of C entering soil that gets stabilized']
           }
 
 
@@ -47,6 +48,7 @@ def three_PG(age, params, states):
     f_DT = params['f_DT'][0]
     sigma_f = params['sigma_f'][0]
     beers_k = params['beers_k'][0]
+    microbial_efficiency = params['microbial_efficiency'][0]
 
     # read most current values of state variables
     w_f = states['w_f'][-1]
@@ -62,13 +64,14 @@ def three_PG(age, params, states):
 
     # calculate average annual insolation, age modifier, and annual total biomass increment
     phi_s_conv = phi_s * 3.6   # average short-wave insolation conversion to MJ/m2/day
-    phi_p = phi_s_conv * 0.45   # photosynthetically-active radiation is 45% of total shortwave
+    phi_p = phi_s_conv * 0.5   # photosynthetically-active radiation is 45% of total shortwave
     phi_pa = phi_p * intercept_fraction   # absorbed PAR
     alpha_c = 1.8   # universal canopy quantum efficiency coefficient, gC/MJ
     f_age = age_modifier(age, age_max, n_age)
     avg_daily_C_increment = phi_pa * alpha_c * f_DT * f_age   # gC/m2/day
+    net_daily_C = avg_daily_C_increment * 0.45
     # c_concentration = 0.45
-    annual_c_increment = (avg_daily_C_increment) * 365 * 0.01  # Mg/ha/y
+    annual_c_increment = net_daily_C * 365 * 0.01  # Mg/ha/y
 
     # calculate all turnover & transfer quantities
     # ToDo: update litterfall routine with attenuation for young stands
@@ -80,7 +83,6 @@ def three_PG(age, params, states):
     som_k = (-1 * np.log(0.5)) / som_time_constant
     som_turnover = w_o * (1 - np.exp(-1 * som_k))
     root_turnover = 0.25 * w_r
-    microbial_efficiency = 0.25
 
     # implement mass balance for all carbon pools
     # ToDo: update this with actual allometric equations
@@ -115,8 +117,43 @@ def c_plot(plot_object, w_l_array, w_s_array, w_f_array, w_r_array, w_o_array, t
         plot_object.bar(time_vector, w_r_plot, label='Roots', color='b', edgecolor='b')
         plot_object.ylabel(y_label)
         plot_object.xlabel("Time (years)")
-        plot_object.legend()
-        plot_object.show()
+
+
+def unharvested_infestation(param_dictionary, state_dictionary):
+    """All aboveground live transferred to litter, roots transferred to SOM after microbial efficiency adjustment
+    'LAI' and 'interception' are independently calculated at every time step, so arbitrarily set to zero here
+    """
+    microbial_efficiency = param_dictionary['microbial_efficiency'][0]
+    state_dictionary['age'].append(0)
+    state_dictionary['w_f'].append(0.1)
+    state_dictionary['w_s'].append(0.1)
+    state_dictionary['w_r'].append(0.1)
+    state_dictionary['w_l'].append(state_dictionary['w_l'][-1] + state_dictionary['w_f'][-1] + state_dictionary['w_s'][-1])
+    state_dictionary['w_o'].append(state_dictionary['w_o'][-1] + (state_dictionary['w_r'][-1] * microbial_efficiency))
+    state_dictionary['LAI'].append(0)
+    state_dictionary['interception'].append(0)
+
+
+def harvested_infestation(param_dictionary, state_dictionary):
+    """All aboveground live transferred to litter, roots transferred to SOM after microbial efficiency adjustment
+    'LAI' and 'interception' are independently calculated at every time step, so arbitrarily set to zero here
+    """
+    print
+
+
+def fire(param_dictionary, state_dictionary):
+    """All aboveground live and litter disappears, roots transferred to SOM after microbial efficiency adjustment
+    'LAI' and 'interception' are independently calculated at every time step, so arbitrarily set to zero here
+    """
+    microbial_efficiency = param_dictionary['microbial_efficiency'][0]
+    state_dictionary['age'].append(0)
+    state_dictionary['w_f'].append(0.1)
+    state_dictionary['w_s'].append(0.1)
+    state_dictionary['w_r'].append(0.1)
+    state_dictionary['w_l'].append(0.1)
+    state_dictionary['w_o'].append(state_dictionary['w_o'][-1] + (state_dictionary['w_r'][-1] * microbial_efficiency))
+    state_dictionary['LAI'].append(0)
+    state_dictionary['interception'].append(0)
 
 
 # main control loop
@@ -127,7 +164,7 @@ while True:
               'w_s': [0.1],   # stem weight, Mg/ha
               'w_r': [0.1],   # root weight, Mg/ha
               'w_l': [0.1],   # litter (surface biomass) weight, Mg/ha
-              'w_o': [100],   # soil organic matter weight, Mg/ha
+              'w_o': [40],   # soil organic matter weight, Mg/ha
               'LAI': [0],   # for display only
               'interception': [0]   # for display only
               }
@@ -154,26 +191,72 @@ while True:
 
     elif command == 'stand':
         # step through a sequence of simulation years and apply the 3-PG growth model each year
-        simulation_years = range(0, 120)
+        simulation_length = 120
+        simulation_years = range(0, simulation_length)
+        plot_years = range(0, simulation_length+1)
         age = 0
+        local_states = {'age': [states['age'][0]],
+                        'w_f': [states['w_f'][0]],
+                        'w_s': [states['w_s'][0]],
+                        'w_r': [states['w_r'][0]],
+                        'w_l': [states['w_l'][0]],
+                        'w_o': [states['w_o'][0]],
+                        'LAI': [states['LAI'][0]],
+                        'interception': [states['interception'][0]]
+                        }
         for year in simulation_years:
-            three_PG(age, params, states)
+            three_PG(age, params, local_states)
             age += 1
         # plot results
-        simulation_years.insert(0, 0)   # insert a value corresponding to initial conditions
-        plt.subplot(3, 1, 1)
-        plt.plot(simulation_years, states['LAI'])
+        plt.subplot(4, 1, 1)
+        plt.plot(plot_years, local_states['LAI'])
         plt.ylabel("LAI\n(m2/m2)")
-        plt.subplot(3, 1, 2)
-        plt.plot(simulation_years, states['interception'])
-        plt.ylabel("Canopy light\ninterception fraction")
-        plt.subplot(3, 1, 3)
-        w_s = np.array(states['w_s'])
-        w_f = np.array(states['w_f'])
-        w_r = np.array(states['w_r'])
-        w_l = np.array(states['w_l'])
-        w_o = np.array(states['w_o'])
-        c_plot(plt, w_l, w_s, w_f, w_r, w_o, simulation_years, "Ecosystem C pools\n(MgC/ha)")
+        plt.xlim((0, simulation_length))
+        plt.subplot(4, 1, 2)
+        plt.plot(plot_years, local_states['interception'])
+        plt.ylabel("Light\ninterception")
+        plt.xlim((0, simulation_length))
+        plt.subplot(4, 1, 3)
+        w_s = np.array(local_states['w_s'])
+        w_f = np.array(local_states['w_f'])
+        w_r = np.array(local_states['w_r'])
+        w_l = np.array(local_states['w_l'])
+        w_o = np.array(local_states['w_o'])
+        c_plot(plt, w_l, w_s, w_f, w_r, w_o, plot_years, "C pools\n(MgC/ha)")
+        plt.xlim((0, simulation_length))
+        plt.legend(prop={'size': 11})
+        # do another set of simulations with disturbance included this time
+        age = 0
+        local_states = {'age': [states['age'][0]],
+                        'w_f': [states['w_f'][0]],
+                        'w_s': [states['w_s'][0]],
+                        'w_r': [states['w_r'][0]],
+                        'w_l': [states['w_l'][0]],
+                        'w_o': [states['w_o'][0]],
+                        'LAI': [states['LAI'][0]],
+                        'interception': [states['interception'][0]]
+                        }
+        for year in simulation_years:
+            if year == 40:
+                age = 0
+                fire(params, local_states)
+            elif year == 80:
+                age = 0
+                unharvested_infestation(params, local_states)
+            else:
+                three_PG(age, params, local_states)
+            age += 1
+        plt.subplot(4, 1, 4)
+        w_s = np.array(local_states['w_s'])
+        w_f = np.array(local_states['w_f'])
+        w_r = np.array(local_states['w_r'])
+        w_l = np.array(local_states['w_l'])
+        w_o = np.array(local_states['w_o'])
+        c_plot(plt, w_l, w_s, w_f, w_r, w_o, plot_years, "Disturbance")
+        plt.text(40, -50, "Fire", horizontalalignment='center', verticalalignment='center')
+        plt.text(80, -50, "Beetles", horizontalalignment='center', verticalalignment='center')
+        plt.xlim((0, simulation_length))
+        plt.show()
 
     elif command == 'land':
         # time parameters
@@ -213,7 +296,7 @@ while True:
                             }
             # define stand starting age and stochstic variables
             age = 0
-            fire_frequency = 200   # years to a stand-replacing fire
+            fire_frequency = 100   # years to a stand-replacing fire
             infest_start = 2005
             infest_end = 2015
             infest_risk = 0.8 / (infest_end - infest_start)
@@ -223,34 +306,21 @@ while True:
                 rand = random()
                 if not infested and (infest_start <= year <= infest_end) and (rand <= infest_risk):
                     age = 0
-                    local_states['age'].append(0)
-                    local_states['w_f'].append(0.1)
-                    local_states['w_s'].append(0.1)
-                    local_states['w_r'].append(0.1)
-                    local_states['w_l'].append(local_states['w_l'][-1]+local_states['w_f'][-1]+local_states['w_s'][-1])
-                    local_states['w_o'].append(local_states['w_o'][-1]+local_states['w_r'][-1])
-                    local_states['LAI'].append(0)
-                    local_states['interception'].append(0)
+                    unharvested_infestation(params, local_states)
                 else:
                     # if no infestation, proceed normally with stochistic fire events or 3-PG growth step
                     fire_risk = (1.0/fire_frequency) * (local_states['w_l'][-1]/50)
                     rand = random()
                     if rand <= fire_risk:
                         age = 0
-                        local_states['age'].append(0)
-                        local_states['w_f'].append(0.1)
-                        local_states['w_s'].append(0.1)
-                        local_states['w_r'].append(0.1)
-                        local_states['w_l'].append(0.1)
-                        local_states['w_o'].append(local_states['w_o'][-1]+local_states['w_r'][-1])
-                        local_states['LAI'].append(0)
-                        local_states['interception'].append(0)
+                        fire(params, local_states)
                     else:
                         three_PG(age, params, local_states)
                     age += 1
 
             AGL = np.array(local_states['w_f']) + np.array(local_states['w_s'])
             plt.plot(plot_years, AGL, color="g")
+            plt.xlim((simulation_years[0], simulation_years[-1]))
             total_w_f += np.array(local_states['w_f'])
             total_w_s += np.array(local_states['w_s'])
             total_w_r += np.array(local_states['w_r'])
@@ -260,6 +330,9 @@ while True:
         plt.ylabel("Aboveground live biomass\n(Mg/ha)")
         plt.subplot(2, 1, 2)
         c_plot(plt, total_w_l, total_w_s, total_w_f, total_w_r, total_w_o, plot_years, "Total landscape carbon (MgC)")
+        plt.legend(loc=3, prop={'size': 11})
+        plt.xlim((simulation_years[0], simulation_years[-1]))
+        plt.show()
 
     elif command == 'q':
         print "   Quitting application..."
