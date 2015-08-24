@@ -179,6 +179,145 @@ def fire(param_dictionary, state_dictionary):
     state_dictionary['interception'].append(0)
 
 
+def land(iteration, tot_iterations, detail=False):
+    # time parameters
+    runs = 1000
+    start_year = 1915
+    simulation_length = 200
+    simulation_years = range(start_year, start_year+simulation_length)
+    plot_years = range(start_year, start_year+simulation_length+1)
+    fire_frequency = 200   # years to a stand-replacing fire
+    infest_start = 2005
+    infest_end = 2015
+
+    # defining plot structure
+    if detail:
+        gs = gridspec.GridSpec(13, 1)
+        ax1 = plt.subplot(gs[0, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax1.set_title("No harvest")
+        ax2 = plt.subplot(gs[1:4, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax3 = plt.subplot(gs[5, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax3.set_title("Post-infestation harvest")
+        ax4 = plt.subplot(gs[6:9, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax5 = plt.subplot(gs[10:, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax5.set_title("Difference")
+        axis_objs = [[ax1, ax2], [ax3, ax4]]
+
+    # define loops for simulating unharvested and harvested beetle infestation
+    descrip = ['unharvested scenario', 'harvest scenario']
+    landscape_totals = []
+    max_fire_freq = []
+    print
+    print 'Executing simulations for analysis iteration %i/%i - ' % (iteration, tot_iterations)
+    for i in (0, 1):
+        # initialize lists for total landscape carbon fractions
+        total_w_f = [0]
+        total_w_s = [0]
+        total_w_r = [0]
+        total_w_l = [0]
+        total_w_c = [0]
+        total_w_o = [0]
+        fires = [0]
+        infestations = [0]
+        harvests = [0]
+        for k in range(simulation_length):
+            total_w_f.append(0)
+            total_w_s.append(0)
+            total_w_r.append(0)
+            total_w_l.append(0)
+            total_w_c.append(0)
+            total_w_o.append(0)
+            fires.append(0)
+            infestations.append(0)
+            harvests.append(0)
+
+        # for each specified stand run, create & initialize a new state variable dictionary, and run through simulation
+        # years computing 3-PG model steps and adding stochastic fire, beetle, and/or harvest events where appropriate
+        for run in range(runs):
+            print '\r   Step %i/2: simulating %s for stand %i/%i' % (i+1, descrip[i], run+1, runs),
+            # make a new initialized state variable dictionary
+            local_states = {'age': [states['age'][0]],
+                            'w_f': [states['w_f'][0]],
+                            'w_s': [states['w_s'][0]],
+                            'w_r': [states['w_r'][0]],
+                            'w_l': [states['w_l'][0]],
+                            'w_c': [states['w_c'][0]],
+                            'w_o': [states['w_o'][0]],
+                            'LAI': [states['LAI'][0]],
+                            'interception': [states['interception'][0]]
+                            }
+            # define stand starting age and stochstic variables
+            age = 0
+            infest_risk = 0.8 / (infest_end - infest_start)
+            infested = False
+            j = 0
+            for year in simulation_years:
+                # implement infestation where appropriate.  No growth or fire occur in infestation years
+                rand = random()
+                # ToDo: include a limit on minimum stand size/age for beetle infestation
+                if not infested and (infest_start <= year <= infest_end) and (rand <= infest_risk):
+                    age = 0
+                    if i == 0:
+                        unharvested_infestation(params, local_states)
+                    elif i == 1:
+                        harvest = harvested_infestation(params, local_states)
+                        harvests[j] -= harvest
+                    infestations[j] += 1
+                else:
+                    # if no infestation, proceed normally with stochastic fire events or 3-PG growth step
+                    fire_risk = (1.0/fire_frequency) * (((local_states['w_l'][-1] * 0.1) + local_states['w_c'][-1])/20)
+                    rand = random()
+                    if rand <= fire_risk:
+                        age = 0
+                        fire(params, local_states)
+                        fires[j] += 1
+                    else:
+                        three_PG(age, params, local_states)
+                    age += 1
+                j += 1
+            total_w_f += np.array(local_states['w_f'])
+            total_w_s += np.array(local_states['w_s'])
+            total_w_r += np.array(local_states['w_r'])
+            total_w_l += np.array(local_states['w_l'])
+            total_w_c += np.array(local_states['w_c'])
+            total_w_o += np.array(local_states['w_o'])
+
+        if detail:
+            axis_objs[i][0].bar(plot_years, fires)
+            max_fire_freq.append(max(fires))
+            axis_objs[i][0].set_xlim((simulation_years[0], simulation_years[-1]))
+            axis_objs[i][0].set_xticklabels([])
+            axis_objs[i][0].yaxis.tick_right()
+            axis_objs[i][0].set_ylabel("Fires\n\n")
+
+            c_plot(axis_objs[i][1], total_w_c, total_w_l, total_w_s, total_w_f, total_w_r, total_w_o, plot_years, "")
+            axis_objs[i][1].set_xlim((simulation_years[0], simulation_years[-1]))
+            axis_objs[i][1].set_xticklabels([])
+            axis_objs[i][1].set_ylabel("Landscape MgC")
+
+        landscape_total = total_w_f + total_w_s + total_w_r + total_w_l + total_w_c + total_w_o
+        landscape_totals.append(landscape_total)
+        print
+
+    difference = landscape_totals[1] - landscape_totals[0]
+    if detail:
+        ax5.plot(plot_years, difference, color='r', linewidth=2.0, label='System C deficit')
+        ax5.plot(plot_years, np.cumsum(harvests), color='b', linewidth=2.0, label='Cumulative C removed')
+        ax5.legend(loc=3, prop={'size': 11})
+        ax5.plot((simulation_years[0], simulation_years[-1]), (0, 0), color='k')
+        ax5.set_ylabel("Landscape MgC")
+        ax5.set_xlim((simulation_years[0], simulation_years[-1]))
+        ax1.yaxis.set_ticks([0, max(max_fire_freq)])
+        ax3.yaxis.set_ticks([0, max(max_fire_freq)])
+
+    return plot_years, difference, np.cumsum(harvests)
+
+
 # main control loop
 while True:
     # define state variable time series initial values
@@ -201,10 +340,12 @@ while True:
     for key in states.keys():
         print "   %s = %.3f" % (key, states[key][0])
     print
-    print "****************************************************************************"
+    print "************************************************************************************************************"
     command = raw_input("""Please enter the name of the parameter or initial state value to update,
-'stand' to plot stand-level results,
-'land' to plot landscape-level consortium runs, or
+'stand' to run a stand-level simulation showing long-term growth trajectory and response to disturbance,
+'land' to run a single stochastic landscape-level analysis showing ecosystem response to beetle attack
+     under harvested and unharvested management,
+'uncert' to run a set of stochastic landscape analyses in order to bound uncertainty in ecosystem response, or
 'q' to quit:\n   """)
     print
 
@@ -292,136 +433,23 @@ while True:
         plt.show()
 
     elif command == 'land':
-        # time parameters
-        runs = 1000
-        start_year = 1915
-        simulation_length = 200
-        simulation_years = range(start_year, start_year+simulation_length)
-        plot_years = range(start_year, start_year+simulation_length+1)
-        fire_frequency = 200   # years to a stand-replacing fire
-        infest_start = 2005
-        infest_end = 2015
+        land(1, 1, detail=True)
+        plt.show()
 
-        # defining plot structure
-        gs = gridspec.GridSpec(13, 1)
-        ax1 = plt.subplot(gs[0, :])
-        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
-        ax1.set_title("No harvest")
-        ax2 = plt.subplot(gs[1:4, :])
-        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
-        ax3 = plt.subplot(gs[5, :])
-        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
-        ax3.set_title("Post-infestation harvest")
-        ax4 = plt.subplot(gs[6:9, :])
-        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
-        ax5 = plt.subplot(gs[10:, :])
-        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
-        ax5.set_title("Difference")
-
-        # define loops for simulating unharvested and harvested beetle infestation
-        descrip = ['unharvested scenario', 'harvest scenario']
-        axis_objs = [[ax1, ax2], [ax3, ax4]]
-        landscape_totals = []
-        max_fire_freq = []
-        print 'Executing simulations.'
-        for i in (0, 1):
-            # initialize lists for total landscape carbon fractions
-            total_w_f = [0]
-            total_w_s = [0]
-            total_w_r = [0]
-            total_w_l = [0]
-            total_w_c = [0]
-            total_w_o = [0]
-            fires = [0]
-            infestations = [0]
-            harvests = [0]
-            for k in range(simulation_length):
-                total_w_f.append(0)
-                total_w_s.append(0)
-                total_w_r.append(0)
-                total_w_l.append(0)
-                total_w_c.append(0)
-                total_w_o.append(0)
-                fires.append(0)
-                infestations.append(0)
-                harvests.append(0)
-
-            # for each specified stand run, create & initialize a new state variable dictionary, and run through simulation
-            # years computing 3-PG model steps and adding stochastic fire, beetle, and/or harvest events where appropriate
-            for run in range(runs):
-                print '\r   Step %i/2: simulating %s for stand %i/%i' % (i+1, descrip[i], run+1, runs),
-                # make a new initialized state variable dictionary
-                local_states = {'age': [states['age'][0]],
-                                'w_f': [states['w_f'][0]],
-                                'w_s': [states['w_s'][0]],
-                                'w_r': [states['w_r'][0]],
-                                'w_l': [states['w_l'][0]],
-                                'w_c': [states['w_c'][0]],
-                                'w_o': [states['w_o'][0]],
-                                'LAI': [states['LAI'][0]],
-                                'interception': [states['interception'][0]]
-                                }
-                # define stand starting age and stochstic variables
-                age = 0
-                infest_risk = 0.8 / (infest_end - infest_start)
-                infested = False
-                j = 0
-                for year in simulation_years:
-                    # implement infestation where appropriate.  No growth or fire occur in infestation years
-                    rand = random()
-                    # ToDo: include a limit on minimum stand size/age for beetle infestation
-                    if not infested and (infest_start <= year <= infest_end) and (rand <= infest_risk):
-                        age = 0
-                        if i == 0:
-                            unharvested_infestation(params, local_states)
-                        elif i == 1:
-                            harvest = harvested_infestation(params, local_states)
-                            harvests[j] -= harvest
-                        infestations[j] += 1
-                    else:
-                        # if no infestation, proceed normally with stochastic fire events or 3-PG growth step
-                        fire_risk = (1.0/fire_frequency) * (((local_states['w_l'][-1] * 0.1) + local_states['w_c'][-1])/20)
-                        rand = random()
-                        if rand <= fire_risk:
-                            age = 0
-                            fire(params, local_states)
-                            fires[j] += 1
-                        else:
-                            three_PG(age, params, local_states)
-                        age += 1
-                    j += 1
-                total_w_f += np.array(local_states['w_f'])
-                total_w_s += np.array(local_states['w_s'])
-                total_w_r += np.array(local_states['w_r'])
-                total_w_l += np.array(local_states['w_l'])
-                total_w_c += np.array(local_states['w_c'])
-                total_w_o += np.array(local_states['w_o'])
-
-            axis_objs[i][0].bar(plot_years, fires)
-            max_fire_freq.append(max(fires))
-            axis_objs[i][0].set_xlim((simulation_years[0], simulation_years[-1]))
-            axis_objs[i][0].set_xticklabels([])
-            axis_objs[i][0].yaxis.tick_right()
-            axis_objs[i][0].set_ylabel("Fires\n\n")
-
-            c_plot(axis_objs[i][1], total_w_c, total_w_l, total_w_s, total_w_f, total_w_r, total_w_o, plot_years, "")
-            axis_objs[i][1].set_xlim((simulation_years[0], simulation_years[-1]))
-            axis_objs[i][1].set_xticklabels([])
-            axis_objs[i][1].set_ylabel("Landscape MgC")
-
-            landscape_total = total_w_f + total_w_s + total_w_r + total_w_l + total_w_c + total_w_o
-            landscape_totals.append(landscape_total)
-            print
-
-        difference = landscape_totals[1] - landscape_totals[0]
-        ax5.plot(plot_years, difference, color='r', linewidth=2.0, label='System C deficit')
-        ax5.plot(plot_years, np.cumsum(harvests), color='b', linewidth=2.0, label='Cumulative C removed')
-        ax5.legend(loc=3, prop={'size': 11})
-        ax5.plot((simulation_years[0], simulation_years[-1]), (0, 0), color='k')
-        ax5.set_ylabel("Landscape MgC")
-        ax5.set_xlim((simulation_years[0], simulation_years[-1]))
-        ax1.yaxis.set_ticks([0, max(max_fire_freq)])
-        ax3.yaxis.set_ticks([0, max(max_fire_freq)])
+    elif command == 'uncert':
+        import pandas as pd
+        import seaborn as sns
+        c_deficits = []
+        c_harvests = []
+        iterations = 100
+        for i in range(iterations):
+            years, c_deficit, c_harvest = land(i+1, iterations)
+            c_deficits.append(c_deficit)
+            c_harvests.append(c_harvest)
+        g = sns.tsplot(c_deficits, years, color='red', condition='System C deficit')
+        h = sns.tsplot(c_harvests, years, color='blue', condition='Cumulative C harvest')
+        g.set_xlabel('Year')
+        g.set_ylabel('Landscape MgC')
         plt.show()
 
     elif command == 'q':
