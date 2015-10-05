@@ -4,6 +4,7 @@ considering stand growth and response to stochastic fire, insect, and harvest di
 """
 
 
+from GWPbio import GWPbio
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
@@ -192,7 +193,7 @@ def land(iteration, tot_iterations, detail=False):
 
     # defining plot structure
     if detail:
-        gs = gridspec.GridSpec(13, 1)
+        gs = gridspec.GridSpec(17, 1)
         ax1 = plt.subplot(gs[0, :])
         plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
         ax1.set_title("No harvest")
@@ -203,9 +204,12 @@ def land(iteration, tot_iterations, detail=False):
         ax3.set_title("Post-infestation harvest")
         ax4 = plt.subplot(gs[6:9, :])
         plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
-        ax5 = plt.subplot(gs[10:, :])
+        ax5 = plt.subplot(gs[10:13, :])
         plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
-        ax5.set_title("Difference")
+        ax5.set_title("Net ecosystem exhange")
+        ax6 = plt.subplot(gs[14:, :])
+        plt.axvspan(infest_start, infest_end, color='r', alpha=0.5, lw=0)
+        ax6.set_title("Carbon deficit")
         axis_objs = [[ax1, ax2], [ax3, ax4]]
 
     # define loops for simulating unharvested and harvested beetle infestation
@@ -298,24 +302,51 @@ def land(iteration, tot_iterations, detail=False):
             c_plot(axis_objs[i][1], total_w_c, total_w_l, total_w_s, total_w_f, total_w_r, total_w_o, plot_years, "")
             axis_objs[i][1].set_xlim((simulation_years[0], simulation_years[-1]))
             axis_objs[i][1].set_xticklabels([])
-            axis_objs[i][1].set_ylabel("Landscape MgC")
+            axis_objs[i][1].set_ylabel("MgC")
 
         landscape_total = total_w_f + total_w_s + total_w_r + total_w_l + total_w_c + total_w_o
         landscape_totals.append(landscape_total)
         print
 
-    difference = landscape_totals[1] - landscape_totals[0]
+    unharv_nee = np.ediff1d(landscape_totals[0], to_begin=0)
+    short_unharv_nee = np.delete(unharv_nee, range(50))   # lop off the first 80 years of data for clarity
+    harv_nee = np.ediff1d(landscape_totals[1], to_begin=0)
+    short_harv_nee = np.delete(harv_nee, range(50))
+    nee_difference = harv_nee - unharv_nee
+    short_nee_difference = np.delete(nee_difference, range(50))
+    short_plot_years = np.delete(plot_years, range(50))
+    cumulative_deficit = landscape_totals[1] - landscape_totals[0]
     if detail:
-        ax5.plot(plot_years, difference, color='r', linewidth=2.0, label='System C deficit')
-        ax5.plot(plot_years, np.cumsum(harvests), color='b', linewidth=2.0, label='Cumulative C removed')
+        ax5.plot(short_plot_years, short_unharv_nee, color='k', linewidth=2.0, label='Unharvested NEE')
+        ax5.plot(short_plot_years, short_harv_nee, color='g', linewidth=2.0, label='Harvested NEE')
+        ax5.plot(short_plot_years, short_nee_difference, color='r', linewidth=2.0, label='NEE difference')
         ax5.legend(loc=3, prop={'size': 11})
         ax5.plot((simulation_years[0], simulation_years[-1]), (0, 0), color='k')
-        ax5.set_ylabel("Landscape MgC")
+        ax5.set_ylabel("MgC/y")
         ax5.set_xlim((simulation_years[0], simulation_years[-1]))
+        ax5.set_xticklabels([])
+
+        ax6.plot(plot_years, cumulative_deficit, color='r', linewidth=2.0, label='Harvest C deficit')
+        ax6.plot(plot_years, np.cumsum(harvests), color='b', linewidth=2.0, label='Cumulative C removal')
+        ax6.legend(loc=3, prop={'size': 11})
+        ax6.plot((simulation_years[0], simulation_years[-1]), (0, 0), color='k')
+        ax6.set_ylabel("MgC")
+        ax6.set_xlim((simulation_years[0], simulation_years[-1]))
         ax1.yaxis.set_ticks([0, max(max_fire_freq)])
         ax3.yaxis.set_ticks([0, max(max_fire_freq)])
 
-    return plot_years, difference, np.cumsum(harvests)
+    #ToDo: make this conversion exact
+    relative_co2_fluxes = -3.67 * nee_difference
+    simulated_forcing = GWPbio(relative_co2_fluxes, 100)
+    CO2_reference_forcing = GWPbio([1], 100)
+    biogenic_impact_ratio = (simulated_forcing/CO2_reference_forcing) / (np.sum(harvests)*-3.67)
+
+    print "Simulated forcing:", simulated_forcing
+    print "Reference forcing, present-day emission of 1 MgCO2:", CO2_reference_forcing
+    print "Biogenic CO2 equivalence:", simulated_forcing/CO2_reference_forcing
+    print "Biogenic impact ratio:", biogenic_impact_ratio
+
+    return plot_years, cumulative_deficit, np.cumsum(harvests)
 
 
 # main control loop
@@ -434,23 +465,48 @@ while True:
 
     elif command == 'land':
         land(1, 1, detail=True)
-        plt.show()
+        plt.savefig('test.png')
 
     elif command == 'uncert':
         import pandas as pd
         import seaborn as sns
+
         c_deficits = []
         c_harvests = []
-        iterations = 100
+        iterations = 10
         for i in range(iterations):
             years, c_deficit, c_harvest = land(i+1, iterations)
+            plt.close()
             c_deficits.append(c_deficit)
             c_harvests.append(c_harvest)
-        g = sns.tsplot(c_deficits, years, color='red', condition='System C deficit')
-        h = sns.tsplot(c_harvests, years, color='blue', condition='Cumulative C harvest')
-        g.set_xlabel('Year')
-        g.set_ylabel('Landscape MgC')
-        plt.show()
+        ax1, time, central_deficit = sns.tsplot(c_deficits, years, color='red', condition='System C deficit')
+        ax2, time, central_harvest = sns.tsplot(c_harvests, years, color='blue', condition='Cumulative C harvest')
+        ax1.set_xlabel('Year')
+        ax2.set_ylabel('Landscape MgC')
+        plt.savefig('composite.png')
+        plt.close()
+
+        print
+        print
+        abbreviated_central_deficit = np.split(central_deficit, [89])[-1]   # start accounting when infestation starts
+        nee_difference = np.ediff1d(abbreviated_central_deficit, to_begin=0)   # MgC/y
+        relative_co2_fluxes = -3.67 * nee_difference   # MgCO2/y
+        cumulative_forcing = GWPbio(relative_co2_fluxes,
+                                    100,
+                                    start_year=(1915+89),
+                                    flux_plot_name='composite_flux.png',
+                                    cumulative_plot_name='composite_cumulative.png')
+        c_harvest = -1 * np.sum(central_harvest)
+        print "Total C removal with harvest:  %.1f  MgC" % c_harvest
+        harvest_co2eq = c_harvest * 3.67
+        print "Harvest gross CO2 equivalence:  %.1f  MgCO2eq" % harvest_co2eq
+        print "Cumulative forcing:  %.8f  Wh/m2" % cumulative_forcing
+        CO2_reference_forcing = GWPbio([1], 100)
+        print "Reference forcing, present-day emission of 1 MgCO2:  %.8f  Wh/m2" % CO2_reference_forcing
+        biogenic_CO2eq = cumulative_forcing / CO2_reference_forcing
+        print "Biogenic CO2 equivalence:  %.1f  MgCO2eq" % biogenic_CO2eq
+        biogenic_impact_ratio = biogenic_CO2eq / harvest_co2eq
+        print "Biogenic impact ratio:  %.8f" % biogenic_impact_ratio
 
     elif command == 'q':
         print "   Quitting application..."
