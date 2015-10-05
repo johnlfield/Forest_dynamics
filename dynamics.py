@@ -132,7 +132,7 @@ def c_plot(plot_object, w_c_array, w_l_array, w_s_array, w_f_array, w_r_array, w
 def unharvested_infestation(param_dictionary, state_dictionary):
     """All foliage transferred to litter, all stems transferred to coarse fuels,
     roots transferred to SOM after microbial efficiency adjustment,
-    'LAI' and 'interception' are independently calculated at every time step, so arbitrarily set to zero here
+    'LAI' and 'interception' are independently re-calculated at every time step, so arbitrarily set to zero here
     """
     microbial_efficiency = param_dictionary['microbial_efficiency'][0]
     state_dictionary['age'].append(0)
@@ -149,7 +149,7 @@ def unharvested_infestation(param_dictionary, state_dictionary):
 def harvested_infestation(param_dictionary, state_dictionary):
     """All foliage transferred to litter, all stems removed for harvest,
     roots transferred to SOM after microbial efficiency adjustment,
-    'LAI' and 'interception' are independently calculated at every time step, so arbitrarily set to zero here
+    'LAI' and 'interception' are independently re-calculated at every time step, so arbitrarily set to zero here
     """
     microbial_efficiency = param_dictionary['microbial_efficiency'][0]
     state_dictionary['age'].append(0)
@@ -165,16 +165,17 @@ def harvested_infestation(param_dictionary, state_dictionary):
 
 
 def fire(param_dictionary, state_dictionary):
-    """All aboveground live, litter, coarse disappear, roots transferred to SOM after microbial efficiency adjustment
-    'LAI' and 'interception' are independently calculated at every time step, so arbitrarily set to zero here
+    """Half of litter and coarse fuels disappear, all foliage disappears, half of live stems transferred to coarse
+    fuels, roots transferred to SOM after microbial efficiency adjustment.
+    'LAI' and 'interception' are independently re-calculated at every time step, so arbitrarily set to zero here
     """
     microbial_efficiency = param_dictionary['microbial_efficiency'][0]
     state_dictionary['age'].append(0)
     state_dictionary['w_f'].append(0.1)
     state_dictionary['w_s'].append(0.1)
     state_dictionary['w_r'].append(0.1)
-    state_dictionary['w_l'].append(0.1)
-    state_dictionary['w_c'].append(0.1)
+    state_dictionary['w_l'].append(state_dictionary['w_l'][-1] * 0.5)
+    state_dictionary['w_c'].append(state_dictionary['w_c'][-1] * 0.5 + state_dictionary['w_s'][-2])
     state_dictionary['w_o'].append(state_dictionary['w_o'][-1] + (state_dictionary['w_r'][-2] * microbial_efficiency))
     state_dictionary['LAI'].append(0)
     state_dictionary['interception'].append(0)
@@ -274,7 +275,7 @@ def land(iteration, tot_iterations, detail=False):
                     infestations[j] += 1
                 else:
                     # if no infestation, proceed normally with stochastic fire events or 3-PG growth step
-                    fire_risk = (1.0/fire_frequency) * (((local_states['w_l'][-1] * 0.1) + local_states['w_c'][-1])/20)
+                    fire_risk = (1.0/fire_frequency) * (((local_states['w_l'][-1] * 1) + (local_states['w_c'][-1] * 1))/30)
                     rand = random()
                     if rand <= fire_risk:
                         age = 0
@@ -461,11 +462,12 @@ while True:
         plt.text(40, -50, "Fire", horizontalalignment='center', verticalalignment='center')
         plt.text(80, -50, "Beetles", horizontalalignment='center', verticalalignment='center')
         plt.xlim((0, simulation_length))
-        plt.show()
+        plt.savefig('stand.png')
+        plt.close()
 
     elif command == 'land':
         land(1, 1, detail=True)
-        plt.savefig('test.png')
+        plt.savefig('land.png')
 
     elif command == 'uncert':
         import pandas as pd
