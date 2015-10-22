@@ -4,7 +4,9 @@ considering stand growth and response to stochastic fire, insect, and harvest di
 """
 
 
+import csv
 from GWPbio import GWPbio
+from LCA import LCA
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,7 +28,7 @@ print """
 params = {'age_max': [150, 'years', 'estimated maximum stand age'],
           'n_age': [4, '-', 'hydraulic conductivity age modifier exponent'],
           'phi_s': [5.5, 'kWh/m2/day', 'annually-averaged incoming short-wave radiation'],   # Denver http://www.apricus.com/upload/userfiles/images/Insolation-levels-USA.jpg
-          'f_DT': [0.5, '-', 'annually-averaged temperature/moisture modifier value'],
+          'f_DT': [0.55, '-', 'annually-averaged temperature/moisture modifier value'],
           'sigma_f': [3.2, 'm2/kg', 'specific leaf area'],   # Chen et al. CJFR 1996 Fig. 3c
           'beers_k': [0.4, '-', 'Beers Law light extinction coefficient'],   # Binkley et al. FEM 2013 Fig. 4c; POOR MODEL FOR LODGEPOLE!
           'microbial_efficiency': [0.25, '-', 'Fraction of C entering soil that gets stabilized']
@@ -275,7 +277,7 @@ def land(iteration, tot_iterations, detail=False):
                     infestations[j] += 1
                 else:
                     # if no infestation, proceed normally with stochastic fire events or 3-PG growth step
-                    fire_risk = (1.0/fire_frequency) * (((local_states['w_l'][-1] * 1) + (local_states['w_c'][-1] * 1))/30)
+                    fire_risk = (1.0/fire_frequency) * (((local_states['w_l'][-1] * 1) + (local_states['w_c'][-1] * 1.1))/20)
                     rand = random()
                     if rand <= fire_risk:
                         age = 0
@@ -475,7 +477,7 @@ while True:
 
         c_deficits = []
         c_harvests = []
-        iterations = 10
+        iterations = 20
         for i in range(iterations):
             years, c_deficit, c_harvest = land(i+1, iterations)
             plt.close()
@@ -498,7 +500,7 @@ while True:
                                     start_year=(1915+89),
                                     flux_plot_name='composite_flux.png',
                                     cumulative_plot_name='composite_cumulative.png')
-        c_harvest = -1 * np.sum(central_harvest)
+        c_harvest = -1 * central_harvest[-1]
         print "Total C removal with harvest:  %.1f  MgC" % c_harvest
         harvest_co2eq = c_harvest * 3.67
         print "Harvest gross CO2 equivalence:  %.1f  MgCO2eq" % harvest_co2eq
@@ -509,6 +511,23 @@ while True:
         print "Biogenic CO2 equivalence:  %.1f  MgCO2eq" % biogenic_CO2eq
         biogenic_impact_ratio = biogenic_CO2eq / harvest_co2eq
         print "Biogenic impact ratio:  %.8f" % biogenic_impact_ratio
+        biogenic_footprint = biogenic_CO2eq / c_harvest
+        print "Biogenic footprint:  %.8f  MgCO2eq/MgC biomass" % biogenic_footprint
+        print
+        print
+
+        # integration with LCA/TWP routine
+        # translating ecosystem C deficit to gCO2/MJ units as per BANR_GREET_mapping.xlsx
+        plt.close()
+        flux_MJ = relative_co2_fluxes * (1.0/c_harvest) * 31.06
+        file_obj = open('fluxes.csv', "wb")
+        c = csv.writer(file_obj)
+        for flux in flux_MJ.tolist():
+            print flux
+            c.writerow([flux])
+        file_obj.close()
+        # LCA(flux_MJ.tolist())
+
 
     elif command == 'q':
         print "   Quitting application..."
