@@ -257,7 +257,7 @@ with con:
     plt.close()
 
     # create a normalized carbon debt plot (min/med/max stands only)
-    for i, detail_stand in enumerate(stand_C.keys()):
+    for i, detail_stand in enumerate(detail_stands):   # stand_C.keys() for all stands
         detail_label = '%s cumulative deficit = %.0f Mg C y' % (detail_stand.split('_')[-1], stand_C[detail_stand]['Integrated_deficit'])
         cumulative_harvest = np.cumsum(stand_C[detail_stand]['Total_Removed_Carbon_RX'])
         normalized_deficit = stand_C[detail_stand]['Running_deficit'] / cumulative_harvest
@@ -269,7 +269,7 @@ with con:
     plt.axhline(1, color='gray', linestyle='--', zorder=-1)
     plt.xlabel('Year')
     plt.ylabel('Normalized Ecosystem Carbon deficit (units??)')
-    plt.legend(loc=4, prop={'size': 11})
+    plt.legend(loc=3, prop={'size': 11})
     plt.title('Range of stand normalized ecosystem carbon deficits-\nminimum, medium, and maximum')
     plt.savefig('Normalized_ecosystem_C_deficit_range.png')
     plt.close()
