@@ -144,11 +144,11 @@ with con:
     print
 
     # filter out stands that will become aspen-dominated
-    cur.execute("ALTER TABLE StandStock RENAME TO temp")
-    cur.execute(""" CREATE TABLE StandStock AS
-                    SELECT * FROM temp
-                    WHERE StandID NOT IN ('T1_MedBow_LS14', 'T1_MedBow_LS21', 'T1_MedBow_LS33', 'T1_MedBow_LS53', 'T1_MedBow_LS58', 'T1_MedBow_LS6') """)
-    cur.execute("DROP TABLE temp")
+    # cur.execute("ALTER TABLE StandStock RENAME TO temp")
+    # cur.execute(""" CREATE TABLE StandStock AS
+    #                 SELECT * FROM temp
+    #                 WHERE StandID NOT IN ('T1_MedBow_LS14', 'T1_MedBow_LS21', 'T1_MedBow_LS33', 'T1_MedBow_LS53', 'T1_MedBow_LS58', 'T1_MedBow_LS6') """)
+    # cur.execute("DROP TABLE temp")
 
     cur.execute("SELECT StandID, Count(Distinct Year) FROM StandStock GROUP BY StandID")
     nice_display(cur, "There are the following numbers of time points for each stand:")
@@ -281,8 +281,8 @@ with con:
                             t.Total_Stand_Carbon AS Total_Stand_Carbon_RX,
                             t.Total_Removed_Carbon AS Total_Removed_Carbon_RX
                     FROM control_carbon c
-                    JOIN harvested_carbon t ON c.StandID=t.StandID AND c.Year=t.Year
-                    WHERE c.StandID NOT IN ('T1_MedBow_LS14', 'T1_MedBow_LS21', 'T1_MedBow_LS33', 'T1_MedBow_LS53', 'T1_MedBow_LS58', 'T1_MedBow_LS6') """)
+                    JOIN harvested_carbon t ON c.StandID=t.StandID AND c.Year=t.Year """)
+                    # WHERE c.StandID NOT IN ('T1_MedBow_LS14', 'T1_MedBow_LS21', 'T1_MedBow_LS33', 'T1_MedBow_LS53', 'T1_MedBow_LS58', 'T1_MedBow_LS6') """)
     stand_C = sql_to_nested_dictionaries(cur, 'Carbon', 'StandID')
 
     # compute the integrated carbon deficit for each stand, and add to dictionary structure
@@ -462,7 +462,7 @@ with con:
     cur.execute(""" SELECT t.Tot_TPA, d.End_normalized_deficit
                     FROM Deficit d
                     JOIN TPA t ON d.StandID=t.StandID
-                    JOIN StartEndYear y WHERE d.StandID=y.StandID AND t.Year=y.EndYear """)
+                    JOIN StartEndYear y WHERE d.StandID=y.StandID AND t.Year=y.StartYear """)
     data_tuples = cur.fetchall()
     data = zip(*data_tuples)
     plt.scatter(data[0], data[1])
@@ -474,7 +474,7 @@ with con:
     cur.execute(""" SELECT t.small_big_ratio, d.End_normalized_deficit
                     FROM Deficit d
                     JOIN TPA t ON d.StandID=t.StandID
-                    JOIN StartEndYear y WHERE d.StandID=y.StandID AND t.Year=y.EndYear """)
+                    JOIN StartEndYear y WHERE d.StandID=y.StandID AND t.Year=y.StartYear AND t.small_big_ratio NOT null """)
     data_tuples = cur.fetchall()
     data = zip(*data_tuples)
     plt.scatter(data[0], data[1])
@@ -483,14 +483,22 @@ with con:
     plt.ylabel('End normalized C deficit')
 
     plt.subplot(3, 3, 8)
-    cur.execute(""" SELECT t.Tot_TPA, c.LP_share
+    cur.execute(""" SELECT t.Tot_TPA
+                    FROM TPA t
+                    JOIN StartEndYear y ON t.StandID=y.StandID WHERE t.Year=y.StartYear """)
+    x_tuples = cur.fetchall()
+    xs = zip(*x_tuples)[0]
+    print xs
+    print
+    cur.execute(""" SELECT c.AS_share
                     FROM StandComposition c
-                    JOIN TPA t ON c.StandID=t.StandID AND c.Year=t.Year
-                    JOIN StartEndYear y WHERE c.StandID=y.StandID AND c.Year=y.EndYear """)
-    data_tuples = cur.fetchall()
-    data = zip(*data_tuples)
-    plt.scatter(data[0], data[1])
-    significance_test(data[0], data[1])
+                    JOIN StartEndYear y ON c.StandID=y.StandID AND c.Year=y.EndYear """)
+    y_tuples = cur.fetchall()
+    ys = zip(*y_tuples)[0]
+    print ys
+    print
+    plt.scatter(xs, ys)
+    significance_test(xs, ys)
     plt.xlabel('Initial live TPA')
     plt.ylabel('Final aspen content (fraction of BA)')
 
